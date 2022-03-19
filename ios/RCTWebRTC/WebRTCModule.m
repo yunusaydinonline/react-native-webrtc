@@ -57,7 +57,7 @@
 {
   self = [super init];
   if (self) {
-    NSDictionary *fieldTrials = @{@"WebRTC-DataChannel-Dcsctp": @"Enabled"};
+    NSDictionary *fieldTrials = @{@"WebRTC-DataChannel-Dcsctp": @"Enabled", @"WebRTC-Audio-iOS-Holding": @"Enabled"};
     RTCInitFieldTrialDictionary(fieldTrials);
 
     if (encoderFactory == nil) {

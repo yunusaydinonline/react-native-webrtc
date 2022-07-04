@@ -98,7 +98,6 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(reactContext)
-                .setFieldTrials("WebRTC-DataChannel-Dcsctp/Enabled/")
                 .setNativeLibraryLoader(new LibraryLoader())
                 .setInjectableLogger(injectableLogger, loggingSeverity)
                 .createInitializationOptions());
@@ -168,13 +167,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
         for (int i = 0; i < size; i++) {
             ReadableMap iceServerMap = iceServersArray.getMap(i);
             boolean hasUsernameAndCredential = iceServerMap.hasKey("username") && iceServerMap.hasKey("credential");
-            if (iceServerMap.hasKey("url")) {
-                if (hasUsernameAndCredential) {
-                    iceServers.add(createIceServer(iceServerMap.getString("url"), iceServerMap.getString("username"), iceServerMap.getString("credential")));
-                } else {
-                    iceServers.add(createIceServer(iceServerMap.getString("url")));
-                }
-            } else if (iceServerMap.hasKey("urls")) {
+            if (iceServerMap.hasKey("urls")) {
                 switch (iceServerMap.getType("urls")) {
                     case String:
                         if (hasUsernameAndCredential) {
@@ -210,6 +203,9 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
         // Required for perfect negotiation.
         conf.enableImplicitRollback = true;
+
+        // Plan B, just a little longer.
+        conf.sdpSemantics = PeerConnection.SdpSemantics.PLAN_B;
 
         if (map == null) {
             return conf;

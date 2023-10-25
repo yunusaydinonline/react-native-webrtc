@@ -1,16 +1,10 @@
-//
-//  WebRTCModule.m
-//
-//  Created by one on 2015/9/24.
-//  Copyright © 2015 One. All rights reserved.
-//
-
 #if !TARGET_OS_OSX
 #import <UIKit/UIKit.h>
 #endif
 
 #import <React/RCTBridge.h>
 #import <React/RCTEventDispatcher.h>
+#import <React/RCTLog.h>
 #import <React/RCTUtils.h>
 
 #import <WebRTC/RTCDefaultVideoDecoderFactory.h>
@@ -19,107 +13,124 @@
 
 #import "WebRTCModule.h"
 #import "WebRTCModule+RTCPeerConnection.h"
+#import "WebRTCModule.h"
+#import "WebRTCModuleOptions.h"
 
 @interface WebRTCModule ()
 @end
 
 @implementation WebRTCModule
 
-+ (BOOL)requiresMainQueueSetup
-{
++ (BOOL)requiresMainQueueSetup {
     return NO;
 }
 
-- (void)dealloc
-{
-  [_localTracks removeAllObjects];
-  _localTracks = nil;
-  [_localStreams removeAllObjects];
-  _localStreams = nil;
+- (void)dealloc {
+    [_localTracks removeAllObjects];
+    _localTracks = nil;
+    [_localStreams removeAllObjects];
+    _localStreams = nil;
 
-  for (NSNumber *peerConnectionId in _peerConnections) {
-    RTCPeerConnection *peerConnection = _peerConnections[peerConnectionId];
-    peerConnection.delegate = nil;
-    [peerConnection close];
-  }
-  [_peerConnections removeAllObjects];
-
-  _peerConnectionFactory = nil;
-}
-
-- (instancetype)init
-{
-    return [self initWithEncoderFactory:nil decoderFactory:nil];
-}
-
-- (instancetype)initWithEncoderFactory:(nullable id<RTCVideoEncoderFactory>)encoderFactory
-                        decoderFactory:(nullable id<RTCVideoDecoderFactory>)decoderFactory
-{
-  self = [super init];
-  if (self) {
-    NSDictionary *fieldTrials = @{@"WebRTC-DataChannel-Dcsctp": @"Enabled", @"WebRTC-Audio-iOS-Holding": @"Enabled"};
-    RTCInitFieldTrialDictionary(fieldTrials);
-
-    if (encoderFactory == nil) {
-      encoderFactory = [[RTCDefaultVideoEncoderFactory alloc] init];
-    }
-    if (decoderFactory == nil) {
-      decoderFactory = [[RTCDefaultVideoDecoderFactory alloc] init];
-    }
-    _peerConnectionFactory
-      = [[RTCPeerConnectionFactory alloc] initWithEncoderFactory:encoderFactory
-                                                  decoderFactory:decoderFactory];
-
-    _peerConnections = [NSMutableDictionary new];
-    _localStreams = [NSMutableDictionary new];
-    _localTracks = [NSMutableDictionary new];
-
-    dispatch_queue_attr_t attributes =
-    dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
-                                            QOS_CLASS_USER_INITIATED, -1);
-    _workerQueue = dispatch_queue_create("WebRTCModule.queue", attributes);
-  }
-
-  return self;
-}
-
-- (RTCMediaStream*)streamForReactTag:(NSString*)reactTag
-{
-  RTCMediaStream *stream = _localStreams[reactTag];
-  if (!stream) {
     for (NSNumber *peerConnectionId in _peerConnections) {
-      RTCPeerConnection *peerConnection = _peerConnections[peerConnectionId];
-      stream = peerConnection.remoteStreams[reactTag];
-      if (stream) {
-        break;
-      }
+        RTCPeerConnection *peerConnection = _peerConnections[peerConnectionId];
+        peerConnection.delegate = nil;
+        [peerConnection close];
     }
-  }
-  return stream;
+    [_peerConnections removeAllObjects];
+
+    _peerConnectionFactory = nil;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        WebRTCModuleOptions *options = [WebRTCModuleOptions sharedInstance];
+        id<RTCAudioDevice> audioDevice = options.audioDevice;
+        id<RTCVideoDecoderFactory> decoderFactory = options.videoDecoderFactory;
+        id<RTCVideoEncoderFactory> encoderFactory = options.videoEncoderFactory;
+        NSDictionary *fieldTrials = options.fieldTrials;
+        RTCLoggingSeverity loggingSeverity = options.loggingSeverity;
+
+        // Initialize field trials.
+        if (fieldTrials == nil) {
+            // Fix for dual-sim connectivity:
+            // https://bugs.chromium.org/p/webrtc/issues/detail?id=10966
+            fieldTrials = @{kRTCFieldTrialUseNWPathMonitor : kRTCFieldTrialEnabledValue};
+        }
+        
+        [fieldTrials setValue:@"WebRTC-DataChannel-Dcsctp" forKey:@"Enabled"];
+        [fieldTrials setValue:@"WebRTC-Audio-iOS-Holding" forKey:@"Enabled"];
+        
+        RTCInitFieldTrialDictionary(fieldTrials);
+
+        // Initialize logging.
+        RTCSetMinDebugLogLevel(loggingSeverity);
+
+        if (encoderFactory == nil) {
+            encoderFactory = [[RTCDefaultVideoEncoderFactory alloc] init];
+        }
+        if (decoderFactory == nil) {
+            decoderFactory = [[RTCDefaultVideoDecoderFactory alloc] init];
+        }
+        _encoderFactory = encoderFactory;
+        _decoderFactory = decoderFactory;
+
+        RCTLogInfo(@"Using video encoder factory: %@", NSStringFromClass([encoderFactory class]));
+        RCTLogInfo(@"Using video decoder factory: %@", NSStringFromClass([decoderFactory class]));
+
+        _peerConnectionFactory = [[RTCPeerConnectionFactory alloc] initWithEncoderFactory:encoderFactory
+                                                                           decoderFactory:decoderFactory
+                                                                              audioDevice:audioDevice];
+
+        _peerConnections = [NSMutableDictionary new];
+        _localStreams = [NSMutableDictionary new];
+        _localTracks = [NSMutableDictionary new];
+
+        dispatch_queue_attr_t attributes =
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, -1);
+        _workerQueue = dispatch_queue_create("WebRTCModule.queue", attributes);
+    }
+
+    return self;
+}
+
+- (RTCMediaStream *)streamForReactTag:(NSString *)reactTag {
+    RTCMediaStream *stream = _localStreams[reactTag];
+    if (!stream) {
+        for (NSNumber *peerConnectionId in _peerConnections) {
+            RTCPeerConnection *peerConnection = _peerConnections[peerConnectionId];
+            stream = peerConnection.remoteStreams[reactTag];
+            if (stream) {
+                break;
+            }
+        }
+    }
+    return stream;
 }
 
 RCT_EXPORT_MODULE();
 
-- (dispatch_queue_t)methodQueue
-{
-  return _workerQueue;
+- (dispatch_queue_t)methodQueue {
+    return _workerQueue;
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-  return @[
-    kEventPeerConnectionSignalingStateChanged,
-    kEventPeerConnectionStateChanged,
-    kEventPeerConnectionAddedStream,
-    kEventPeerConnectionRemovedStream,
-    kEventPeerConnectionOnRenegotiationNeeded,
-    kEventPeerConnectionIceConnectionChanged,
-    kEventPeerConnectionIceGatheringChanged,
-    kEventPeerConnectionGotICECandidate,
-    kEventPeerConnectionDidOpenDataChannel,
-    kEventDataChannelStateChanged,
-    kEventDataChannelReceiveMessage,
-    kEventMediaStreamTrackMuteChanged
-  ];
+    return @[
+        kEventPeerConnectionSignalingStateChanged,
+        kEventPeerConnectionStateChanged,
+        kEventPeerConnectionOnRenegotiationNeeded,
+        kEventPeerConnectionIceConnectionChanged,
+        kEventPeerConnectionIceGatheringChanged,
+        kEventPeerConnectionGotICECandidate,
+        kEventPeerConnectionDidOpenDataChannel,
+        kEventDataChannelDidChangeBufferedAmount,
+        kEventDataChannelStateChanged,
+        kEventDataChannelReceiveMessage,
+        kEventMediaStreamTrackMuteChanged,
+        kEventMediaStreamTrackEnded,
+        kEventPeerConnectionOnRemoveTrack,
+        kEventPeerConnectionOnTrack
+    ];
 }
 
 @end

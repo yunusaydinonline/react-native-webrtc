@@ -1,9 +1,4 @@
-//
-//  CaptureController.m
-//  RCTWebRTC
-//
-//  Created by Alex-Dan Bumbu on 11/01/2021.
-//
+#if !TARGET_OS_TV
 
 #import "CaptureController.h"
 
@@ -18,3 +13,5 @@
 }
 
 @end
+
+#endif
